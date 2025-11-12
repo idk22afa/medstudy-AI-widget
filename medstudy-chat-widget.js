@@ -1,6 +1,6 @@
 /**
- * MedStudy Chat Widget v2.0
- * AI консультант с обязательной формой контактов
+ * MedStudy Chat Widget v2.1 - ИСПРАВЛЕННЫЙ
+ * Отправляет контакты в КАЖДОМ сообщении
  */
 
 const MedStudyChat = (function() {
@@ -8,7 +8,7 @@ const MedStudyChat = (function() {
   
   let config = {};
   let isFormSubmitted = false;
-  let userContact = null;
+  let userContact = null; // КРИТИЧНО: хранит контакты
   let chatWidget = null;
   let messagesContainer = null;
 
@@ -18,7 +18,7 @@ const MedStudyChat = (function() {
       webhookUrl: options.webhookUrl || '',
       title: options.title || 'MedStudy Помощник',
       welcomeMessage: options.welcomeMessage || 'Привет! Чем могу помочь?',
-      requireContact: options.requireContact !== false, // По умолчанию true
+      requireContact: options.requireContact !== false,
       contactFields: options.contactFields || {
         name: { required: true, placeholder: 'Ваше имя' },
         email: { required: true, placeholder: 'Email' },
@@ -35,19 +35,18 @@ const MedStudyChat = (function() {
       return;
     }
 
+    console.log('MedStudy Chat: Инициализация...');
     createChatWidget();
   }
 
   // Создание виджета
   function createChatWidget() {
-    // Удаляем старый виджет если есть
     const existing = document.getElementById('medstudy-chat-widget');
     if (existing) existing.remove();
 
-    // CSS стили
     injectStyles();
 
-    // Кнопка открытия чата
+    // Кнопка открытия
     const chatButton = document.createElement('button');
     chatButton.id = 'medstudy-chat-button';
     chatButton.innerHTML = `
@@ -73,10 +72,8 @@ const MedStudyChat = (function() {
     `;
     document.body.appendChild(chatWidget);
 
-    // Обработчик закрытия
     document.getElementById('medstudy-close-chat').addEventListener('click', closeChat);
 
-    // Если форма требуется
     if (config.requireContact) {
       attachContactFormListeners();
     } else {
@@ -84,7 +81,7 @@ const MedStudyChat = (function() {
     }
   }
 
-  // HTML формы контактов
+  // HTML формы
   function createContactFormHTML() {
     return `
       <div class="contact-form-container">
@@ -148,7 +145,7 @@ const MedStudyChat = (function() {
     `;
   }
 
-  // Обработчики формы контактов
+  // Обработчик формы контактов
   function attachContactFormListeners() {
     const form = document.getElementById('medstudy-contact-form');
     if (!form) return;
@@ -160,22 +157,28 @@ const MedStudyChat = (function() {
       const email = document.getElementById('contact-email').value.trim();
       const phone = document.getElementById('contact-phone').value.trim();
 
-      // Валидация
       if (!name || !email || !phone) {
         alert('Пожалуйста, заполните все поля');
         return;
       }
 
-      // Сохраняем контакт
-      userContact = { name, email, phone };
+      // КРИТИЧНО: Сохраняем контакты ГЛОБАЛЬНО
+      userContact = {
+        name: name,
+        email: email,
+        phone: phone
+      };
+      
       isFormSubmitted = true;
+
+      console.log('✅ Контакты сохранены:', userContact);
 
       // Заменяем форму на чат
       const chatBody = document.getElementById('medstudy-chat-body');
       chatBody.innerHTML = createChatHTML();
       attachChatListeners();
 
-      // Показываем приветствие
+      // Приветствие
       setTimeout(() => {
         addMessage(config.welcomeMessage, 'bot');
       }, 500);
@@ -188,15 +191,24 @@ const MedStudyChat = (function() {
     const input = document.getElementById('medstudy-input');
     const sendBtn = document.getElementById('medstudy-send-btn');
 
-    if (!input || !sendBtn) return;
+    if (!input || !sendBtn) {
+      console.error('Элементы чата не найдены!');
+      return;
+    }
 
     sendBtn.addEventListener('click', sendMessage);
     input.addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') sendMessage();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendMessage();
+      }
     });
+
+    // Фокус на input
+    input.focus();
   }
 
-  // Отправка сообщения
+  // ИСПРАВЛЕННАЯ функция отправки сообщения
   async function sendMessage() {
     const input = document.getElementById('medstudy-input');
     const message = input.value.trim();
@@ -207,16 +219,22 @@ const MedStudyChat = (function() {
     addMessage(message, 'user');
     input.value = '';
 
-    // Показываем индикатор набора
+    // Индикатор
     const typingId = showTypingIndicator();
 
     try {
-      // Формируем данные для отправки
+      // КРИТИЧНО: ВСЕГДА отправляем контакты!
       const requestData = {
         message: message,
-        contact: userContact || {},
+        contact: userContact || {
+          name: 'Unknown',
+          email: 'unknown@example.com',
+          phone: ''
+        },
         timestamp: new Date().toISOString()
       };
+
+      console.log('📤 Отправка в n8n:', requestData);
 
       // Отправляем в n8n
       const response = await fetch(config.webhookUrl, {
@@ -230,20 +248,30 @@ const MedStudyChat = (function() {
       // Убираем индикатор
       removeTypingIndicator(typingId);
 
+      console.log('📥 Ответ сервера:', response.status);
+
       if (!response.ok) {
-        throw new Error('Ошибка сервера');
+        throw new Error('Ошибка сервера: ' + response.status);
       }
 
       const data = await response.json();
-      const botReply = data.response || 'Извините, произошла ошибка. Попробуйте позже.';
+      console.log('📥 Данные ответа:', data);
 
-      // Показываем ответ бота
+      const botReply = data.response || data.reply || 'Извините, произошла ошибка.';
+
+      // Показываем ответ
       addMessage(botReply, 'bot');
+
+      // Возвращаем фокус на input
+      setTimeout(() => {
+        const inputElement = document.getElementById('medstudy-input');
+        if (inputElement) inputElement.focus();
+      }, 100);
 
     } catch (error) {
       removeTypingIndicator(typingId);
-      console.error('Ошибка отправки:', error);
-      addMessage('Извините, не удалось отправить сообщение. Проверьте соединение.', 'bot');
+      console.error('❌ Ошибка отправки:', error);
+      addMessage('Извините, не удалось отправить сообщение. Проверьте соединение и попробуйте еще раз.', 'bot');
     }
   }
 
@@ -286,13 +314,12 @@ const MedStudyChat = (function() {
     if (indicator) indicator.remove();
   }
 
-  // Переключение чата
+  // Открытие/закрытие
   function toggleChat() {
     if (chatWidget.style.display === 'none') {
       chatWidget.style.display = 'flex';
       document.getElementById('medstudy-chat-button').style.display = 'none';
       
-      // Фокус на input если чат открыт
       if (isFormSubmitted) {
         setTimeout(() => {
           const input = document.getElementById('medstudy-input');
@@ -307,7 +334,7 @@ const MedStudyChat = (function() {
     document.getElementById('medstudy-chat-button').style.display = 'flex';
   }
 
-  // Инъекция стилей
+  // Стили
   function injectStyles() {
     if (document.getElementById('medstudy-chat-styles')) return;
 
@@ -374,7 +401,7 @@ const MedStudyChat = (function() {
         overflow: hidden;
       }
       
-      /* Форма контактов */
+      /* Форма */
       .contact-form-container {
         padding: 30px;
         display: flex;
@@ -449,6 +476,7 @@ const MedStudyChat = (function() {
         border-radius: 12px;
         font-size: 14px;
         line-height: 1.5;
+        word-wrap: break-word;
       }
       .user-message .message-content {
         background: ${config.theme.primaryColor};
@@ -516,7 +544,6 @@ const MedStudyChat = (function() {
         transform: scale(1.1);
       }
       
-      /* Мобильная адаптация */
       @media (max-width: 480px) {
         #medstudy-chat-widget {
           width: 100%;
@@ -536,7 +563,7 @@ const MedStudyChat = (function() {
   };
 })();
 
-// Экспорт для использования
+// Экспорт
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = MedStudyChat;
 }
