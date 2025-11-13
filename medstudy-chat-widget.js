@@ -236,14 +236,21 @@ const MedStudyChat = (function() {
 
       console.log('📤 Отправка в n8n:', requestData);
 
-      // Отправляем в n8n
-      const response = await fetch(config.webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-      });
+      // Отправляем в n8n с timeout 15 секунд
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+try {
+  const response = await fetch(config.webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestData),
+    signal: controller.signal
+  });
+  
+  clearTimeout(timeoutId);
 
       // Убираем индикатор
       removeTypingIndicator(typingId);
@@ -269,11 +276,15 @@ const MedStudyChat = (function() {
       }, 100);
 
     } catch (error) {
-      removeTypingIndicator(typingId);
-      console.error('❌ Ошибка отправки:', error);
-      addMessage('Извините, не удалось отправить сообщение. Проверьте соединение и попробуйте еще раз.', 'bot');
-    }
+  clearTimeout(timeoutId);
+  
+  if (error.name === 'AbortError') {
+    throw new Error('⏱️ Сервер не успел ответить за 15 секунд. Попробуйте еще раз.');
   }
+  
+  console.error('Ошибка:', error);
+  throw error;
+}
 
   // Добавление сообщения
   function addMessage(text, sender) {
