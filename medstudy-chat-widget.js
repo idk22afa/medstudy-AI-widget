@@ -209,25 +209,42 @@ const MedStudyChat = (function() {
   }
 
   // ИСПРАВЛЕННАЯ функция отправки сообщения 2
-async function sendMessage(customMessage) {
-  const message = customMessage || elements.input.value.trim();
+// ИСПРАВЛЕННАЯ функция отправки сообщения
+async function sendMessage() {
+  const input = document.getElementById('medstudy-input');
+  if (!input) return;
   
+  const message = input.value.trim();
   if (!message) return;
+
+  // КРИТИЧНО: Проверяем наличие контактов
+  if (!userContact) {
+    console.error('❌ Контакты не заполнены!');
+    alert('Пожалуйста, сначала заполните контактную форму');
+    return;
+  }
+
+  // Добавляем сообщение пользователя
   addMessage(message, 'user');
-  elements.input.value = '';
-  autoResize();
-  showTypingIndicator();
-  elements.send.disabled = true;
-  
+  input.value = '';
+
+  // Показываем индикатор
+  const typingId = showTypingIndicator();
+
+  // Блокируем кнопку
+  const sendBtn = document.getElementById('medstudy-send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+
   try {
-    console.log('📤 Отправляем:', {
-      message,
-      email: chatState.userEmail,
-      phone: chatState.userPhone,
-      name: chatState.userName
+    console.log('📤 Отправляем в N8N:', {
+      message: message,
+      name: userContact.name,
+      email: userContact.email,
+      phone: userContact.phone
     });
-    
-    const response = await fetch(chatState.webhookUrl, {
+
+    // КРИТИЧНО: Отправляем в формате { body: { ... } }
+    const response = await fetch(config.webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -235,48 +252,53 @@ async function sendMessage(customMessage) {
       body: JSON.stringify({
         body: {
           message: message,
-          email: chatState.userEmail,
-          phone: chatState.userPhone,
-          name: chatState.userName
+          name: userContact.name,
+          email: userContact.email,
+          phone: userContact.phone
         }
       })
     });
-    
+
     console.log('📥 Статус ответа:', response.status);
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     // Получаем текст ответа
     const responseText = await response.text();
     console.log('📥 Сырой ответ:', responseText);
-    
+
     // Пытаемся распарсить JSON
     let data;
     try {
       data = JSON.parse(responseText);
     } catch (e) {
       console.error('❌ Ошибка парсинга JSON:', e);
+      // Если не JSON, используем как текст
       data = { response: responseText };
     }
-    
-    hideTypingIndicator();
-    
+
+    // Убираем индикатор
+    removeTypingIndicator(typingId);
+
+    // Извлекаем ответ бота (поддерживаем разные форматы)
     const botResponse = data.response || data.reply || data.output || 'Получен ответ';
+    
     console.log('✅ Ответ бота:', botResponse);
     addMessage(botResponse, 'bot');
-    
+
   } catch (error) {
     console.error('❌ Ошибка отправки:', error);
-    hideTypingIndicator();
+    removeTypingIndicator(typingId);
     addMessage(
       'Извините, произошла ошибка. Попробуйте еще раз или свяжитесь с нами: info@medstudy.cz',
       'bot'
     );
   } finally {
-    elements.send.disabled = false;
-    elements.input.focus();
+    // Разблокируем кнопку
+    if (sendBtn) sendBtn.disabled = false;
+    input.focus();
   }
 }
 
