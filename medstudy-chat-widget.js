@@ -208,72 +208,79 @@ const MedStudyChat = (function() {
     input.focus();
   }
 
-  // ИСПРАВЛЕННАЯ функция отправки сообщения
-  async function sendMessage() {
-    const input = document.getElementById('medstudy-input');
-    const message = input.value.trim();
-
-    if (!message) return;
-
-    // Показываем сообщение пользователя
-    addMessage(message, 'user');
-    input.value = '';
-
-    // Индикатор
-    const typingId = showTypingIndicator();
-
-    try {
-      // КРИТИЧНО: ВСЕГДА отправляем контакты!
-      const requestData = {
-        message: message,
-        contact: userContact || {
-          name: 'Unknown',
-          email: 'unknown@example.com',
-          phone: ''
-        },
-        timestamp: new Date().toISOString()
-      };
-
-      console.log('📤 Отправка в n8n:', requestData);
-
-      // Отправляем в n8n
-      const response = await fetch(config.webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-      });
-
-      // Убираем индикатор
-      removeTypingIndicator(typingId);
-
-      console.log('📥 Ответ сервера:', response.status);
-
-      if (!response.ok) {
-        throw new Error('Ошибка сервера: ' + response.status);
-      }
-
-      const data = await response.json();
-      console.log('📥 Данные ответа:', data);
-
-      const botReply = data.response || data.reply || 'Извините, произошла ошибка.';
-
-      // Показываем ответ
-      addMessage(botReply, 'bot');
-
-      // Возвращаем фокус на input
-      setTimeout(() => {
-        const inputElement = document.getElementById('medstudy-input');
-        if (inputElement) inputElement.focus();
-      }, 100);
-
-    } catch (error) {
-      removeTypingIndicator(typingId);
-      console.error('❌ Ошибка отправки:', error);
-      addMessage('Извините, не удалось отправить сообщение. Проверьте соединение и попробуйте еще раз.', 'bot');
+  // ИСПРАВЛЕННАЯ функция отправки сообщения 2
+async function sendMessage(customMessage) {
+  const message = customMessage || elements.input.value.trim();
+  
+  if (!message) return;
+  addMessage(message, 'user');
+  elements.input.value = '';
+  autoResize();
+  showTypingIndicator();
+  elements.send.disabled = true;
+  
+  try {
+    console.log('📤 Отправляем:', {
+      message,
+      email: chatState.userEmail,
+      phone: chatState.userPhone,
+      name: chatState.userName
+    });
+    
+    const response = await fetch(chatState.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        body: {
+          message: message,
+          email: chatState.userEmail,
+          phone: chatState.userPhone,
+          name: chatState.userName
+        }
+      })
+    });
+    
+    console.log('📥 Статус ответа:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
+    
+    // Получаем текст ответа
+    const responseText = await response.text();
+    console.log('📥 Сырой ответ:', responseText);
+    
+    // Пытаемся распарсить JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error('❌ Ошибка парсинга JSON:', e);
+      data = { response: responseText };
+    }
+    
+    hideTypingIndicator();
+    
+    const botResponse = data.response || data.reply || data.output || 'Получен ответ';
+    console.log('✅ Ответ бота:', botResponse);
+    addMessage(botResponse, 'bot');
+    
+  } catch (error) {
+    console.error('❌ Ошибка отправки:', error);
+    hideTypingIndicator();
+    addMessage(
+      'Извините, произошла ошибка. Попробуйте еще раз или свяжитесь с нами: info@medstudy.cz',
+      'bot'
+    );
+  } finally {
+    elements.send.disabled = false;
+    elements.input.focus();
   }
+}
+
+
 
   // Добавление сообщения
   function addMessage(text, sender) {
